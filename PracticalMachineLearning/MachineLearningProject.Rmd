@@ -1,0 +1,130 @@
+---
+title: "Johns Hopkins | Coursera - Machine Learning Project"
+author: Saurabh Sindwani
+date: May 05, 2017
+output:
+  md_document:
+    variant: markdown_github
+---
+
+# Johns Hopkins | Coursera - Machine Learning Project
+
+
+## Introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
+
+In this project, we will use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which they did the exercise.
+
+## Data Preprocessing
+
+### Load the relevant libraries
+```{r message=FALSE, warning=FALSE}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(corrplot)
+```
+
+### Download the data
+```{r message=FALSE}
+trainUrl <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+trainFile <- "./data/pml-training.csv"
+testFile  <- "./data/pml-testing.csv"
+if (!file.exists("./data")) {
+  dir.create("./data")
+}
+if (!file.exists(trainFile)) {
+  download.file(trainUrl, destfile=trainFile)
+}
+if (!file.exists(testFile)) {
+  download.file(testUrl, destfile=testFile)
+}
+```
+
+### Read the data
+```{r message=FALSE}
+# Replace blank values with NA
+trainRaw <- read.csv("./data/pml-training.csv", na.strings = c("", NA))
+testRaw <- read.csv("./data/pml-testing.csv", na.strings = c("", NA))
+dim(trainRaw)
+dim(testRaw)
+```
+
+### Clean the data
+```{r message=FALSE}
+sum(complete.cases(trainRaw))
+table(colSums(is.na(trainRaw)))
+```
+There are 100 columns out of 160 where out of 19622 observations, 19216 have NA values, thus only 406 observations have values other than NA for these columns, 406/19622 is approx. 2% of the data, so we can afford to drop these 100 columns.
+
+```{r message=FALSE}
+trainRaw <- trainRaw[, colSums(is.na(trainRaw)) == 0] 
+testRaw <- testRaw[, colSums(is.na(testRaw)) == 0] 
+```
+
+Now, let's clean the data off the variables that are of no use for predictions.
+```{r message=FALSE}
+classe <- trainRaw$classe
+trainRemove <- grepl("^X|timestamp|window|user_name", names(trainRaw))
+trainCleaned <- trainRaw[, !trainRemove]
+testRemove <- grepl("^X|timestamp|window|user_name|problem_id", names(testRaw))
+testCleaned <- testRaw[, !testRemove]
+
+```
+
+### Slice the data
+
+We now split the cleaned training set into a pure training data set (70%) and a validation data set (30%). We will use the validation data set to conduct cross validation.
+```{r}
+set.seed(1977) # For reproducibile purposes
+inTrain <- createDataPartition(trainCleaned$classe, p=0.70, list=F)
+trainData <- trainCleaned[inTrain, ]
+testData <- trainCleaned[-inTrain, ]
+```
+
+## Data Modeling
+We fit a predictive model for activity recognition using Random Forest algorithm because it automatically selects important variables and is robust to correlated covariates & outliers in general. We will use 5-fold cross validation when applying the algorithm. (Wanted to try 10-fold CV with 3 repetitions but it was taking too much of time.)
+```{r}
+controlRf <- trainControl(method="cv", number=5)
+modelRf <- train(classe ~ ., data=trainData, method="rf", trControl=controlRf, ntree=250)
+modelRf
+```
+
+Next, We estimate the performance of the model on the validation data set.
+```{r}
+predictRf <- predict(modelRf, testData)
+confusionMatrix(testData$classe, predictRf)
+```
+
+```{r}
+accuracy <- postResample(predictRf, testData$classe)
+accuracy
+1 - as.numeric(confusionMatrix(testData$classe, predictRf)$overall[1])
+```
+
+The accuracy of the model is 99.45% and and out of sample error is 0.54%.
+
+## Prediction
+
+Predicting the data downloaded earlier with 20 observations.
+```{r}
+result <- predict(modelRf, testCleaned)
+result
+```
+
+## Appendix: Graphs
+
+Corelation Matrix
+```{r}
+corrPlot <- cor(trainData[, -length(names(trainData))])
+corrplot(corrPlot, method="color")
+```
+
+Decision Tree Visualization
+```{r}
+treeModel <- rpart(classe ~ ., data=trainData, method="class")
+prp(treeModel) # fast plot
+```
